@@ -9,6 +9,7 @@ export interface AgentLog {
 export type AgentType = 
   | 'orchestrator' 
   | 'validation' 
+  | 'carrier'
   | 'decision' 
   | 'retry' 
   | 'whatsapp' 

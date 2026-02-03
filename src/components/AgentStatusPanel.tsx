@@ -7,12 +7,14 @@ import {
   RefreshCw,
   MessageSquare,
   BarChart3,
+  Radio,
   Loader2
 } from "lucide-react";
 
 const agentIcons: Record<AgentType, typeof Network> = {
   orchestrator: Network,
   validation: CheckCircle2,
+  carrier: Radio,
   decision: Brain,
   retry: RefreshCw,
   whatsapp: MessageSquare,
@@ -25,7 +27,7 @@ interface AgentStatusPanelProps {
 
 export function AgentStatusPanel({ agents }: AgentStatusPanelProps) {
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
       {agents.map((agent) => {
         const Icon = agentIcons[agent.name];
         

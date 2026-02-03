@@ -2,14 +2,15 @@ import { useState, useCallback } from "react";
 import { AgentLog, AgentStatus, AgentType, ValidationResult } from "@/types/validation";
 import { supabase } from "@/integrations/supabase/client";
 import { v4 as uuidv4 } from "uuid";
+import { createMultiAgentSystem } from "@/agents";
+import type { ValidationResult as MASValidationResult } from "@/agents";
 
 const initialAgentStatuses: AgentStatus[] = [
-  { name: 'orchestrator', displayName: 'Orchestrator', status: 'idle', icon: 'network' },
-  { name: 'validation', displayName: 'Validation', status: 'idle', icon: 'check' },
-  { name: 'decision', displayName: 'Decision', status: 'idle', icon: 'brain' },
-  { name: 'retry', displayName: 'Retry', status: 'idle', icon: 'refresh' },
-  { name: 'whatsapp', displayName: 'WhatsApp', status: 'idle', icon: 'message' },
-  { name: 'confidence', displayName: 'Confidence', status: 'idle', icon: 'chart' },
+  { name: 'decision', displayName: 'Decision Agent', status: 'idle', icon: 'brain' },
+  { name: 'validation', displayName: 'Validation Agent', status: 'idle', icon: 'check' },
+  { name: 'whatsapp', displayName: 'WhatsApp Agent', status: 'idle', icon: 'message' },
+  { name: 'retry', displayName: 'Retry Agent', status: 'idle', icon: 'refresh' },
+  { name: 'confidence', displayName: 'Confidence Agent', status: 'idle', icon: 'chart' },
 ];
 
 export function useValidation() {
@@ -47,7 +48,7 @@ export function useValidation() {
 
   const processServerLogs = useCallback((serverLogs: Array<{ agent: string; message: string; status: string; timestamp: string }>) => {
     // Group logs by agent and process them with delays for visual effect
-    const agentOrder: AgentType[] = ['orchestrator', 'validation', 'retry', 'decision', 'whatsapp', 'confidence'];
+    const agentOrder: AgentType[] = ['orchestrator', 'validation', 'carrier', 'retry', 'decision', 'whatsapp', 'confidence'];
     
     serverLogs.forEach((log, index) => {
       setTimeout(() => {
@@ -77,68 +78,122 @@ export function useValidation() {
     const startTime = Date.now();
 
     try {
-      // Show initial processing state
-      updateAgentStatus('orchestrator', 'active');
-      addLog('orchestrator', `Initiating validation for ${countryCode} ${phoneNumber}`, 'thinking');
-
-      // Call the edge function
-      const { data, error } = await supabase.functions.invoke('validate-phone', {
-        body: { phoneNumber, countryCode }
+      // Initialize Multi-Agent System
+      addLog('decision', 'Initializing Multi-Agent System...', 'thinking');
+      
+      const supervisor = createMultiAgentSystem({
+        numverifyKey: import.meta.env.VITE_NUMVERIFY_API_KEY,
+        abstractKey: import.meta.env.VITE_ABSTRACT_API_KEY,
+        whatsappKey: import.meta.env.VITE_WHATSAPP_API_KEY,
+        enableLogging: false // We'll handle logging ourselves
       });
 
-      if (error) {
-        console.error('Edge function error:', error);
-        addLog('orchestrator', `Error: ${error.message}`, 'error');
-        updateAgentStatus('orchestrator', 'complete');
-        setIsProcessing(false);
-        return;
-      }
+      // Stream agent updates
+      updateAgentStatus('decision', 'active');
+      addLog('decision', `Analyzing phone number: ${phoneNumber}`, 'thinking');
+      
+      // Execute validation through MAS
+      const masResult: MASValidationResult = await supervisor.validate({
+        phoneNumber: `${countryCode}${phoneNumber}`,
+        country: countryCode
+      });
 
-      // Process the server logs with visual delays
-      if (data.logs && Array.isArray(data.logs)) {
-        // Clear initial log and process server logs
-        setLogs([]);
-        processServerLogs(data.logs);
-      }
+      // Debug logging
+      console.log('🔍 MAS Result:', {
+        hasWhatsApp: !!masResult.whatsapp,
+        whatsappData: masResult.whatsapp,
+        skipWhatsApp: masResult.executionPlan.skipWhatsApp,
+        lineType: masResult.validation.lineType
+      });
 
-      // Set result after a delay to match log processing
-      const logProcessingTime = (data.logs?.length || 0) * 150 + 500;
+      // Process Chain of Thought
+      masResult.chainOfThought.forEach((thought, index) => {
+        setTimeout(() => {
+          const agentMatch = thought.match(/\[(\w+)\]/);
+          const agent = (agentMatch?.[1]?.toLowerCase() || 'decision') as AgentType;
+          const message = thought.replace(/\[\w+\]\s*/, '');
+          addLog(agent, message, 'thinking');
+          if (index === 0) updateAgentStatus(agent, 'active');
+        }, index * 100);
+      });
+
+      // Process Chain of Execution
+      masResult.chainOfExecution.forEach((action, index) => {
+        setTimeout(() => {
+          const agentMatch = action.match(/(\w+)\s+Agent:/);
+          const agent = (agentMatch?.[1]?.toLowerCase() || 'decision') as AgentType;
+          const message = action.replace(/\w+\s+Agent:\s*/, '');
+          addLog(agent, message, 'success');
+          updateAgentStatus(agent, 'complete');
+        }, (masResult.chainOfThought.length + index) * 100);
+      });
+
+      // Calculate cost saved (mock calculation)
+      const baseCost = 0.005; // Base API cost
+      const actualCost = masResult.executionPlan.estimatedCost;
+      const costSaved = Math.max(0, baseCost - actualCost);
+
+      // Calculate WhatsApp status
+      let whatsappStatus: ValidationResult['whatsappStatus'] = 'not_found';
+      
+      if (masResult.whatsapp) {
+        // WhatsApp check was performed
+        if (masResult.whatsapp.exists) {
+          whatsappStatus = 'verified'; // Number exists on WhatsApp
+        } else {
+          whatsappStatus = 'not_found'; // Number checked but not on WhatsApp
+        }
+      } else if (masResult.executionPlan.skipWhatsApp || masResult.validation.lineType !== 'mobile') {
+        // WhatsApp check was intentionally skipped
+        whatsappStatus = 'unchecked';
+      }
+      
+      console.log('📱 WhatsApp Status determined:', whatsappStatus);
+
+      // Map MAS result to UI format
+      const uiResult: ValidationResult = {
+        phoneNumber: masResult.validation.phoneNumber,
+        countryCode: masResult.validation.countryCode,
+        countryName: masResult.validation.countryName,
+        carrier: masResult.validation.carrier || 'Unknown',
+        lineType: masResult.validation.lineType as ValidationResult['lineType'],
+        isValid: masResult.validation.valid,
+        whatsappStatus,
+        confidenceScore: masResult.confidence.score,
+        costSaved: costSaved,
+        validationTime: masResult.totalExecutionTime,
+        retryCount: masResult.chainOfExecution.filter(e => e.includes('Retry')).length
+      };
+
+      // Delay setting result to match log animation
+      const totalDelay = (masResult.chainOfThought.length + masResult.chainOfExecution.length) * 100 + 500;
       
       setTimeout(() => {
-        setResult({
-          phoneNumber: data.phoneNumber,
-          countryCode: data.countryCode,
-          countryName: data.countryName,
-          carrier: data.carrier,
-          lineType: data.lineType as ValidationResult['lineType'],
-          isValid: data.isValid,
-          whatsappStatus: data.whatsappStatus as ValidationResult['whatsappStatus'],
-          confidenceScore: data.confidenceScore,
-          costSaved: data.costSaved,
-          validationTime: data.validationTime,
-          retryCount: data.retryCount,
-        });
+        setResult(uiResult);
 
         // Update stats
         setStats(prev => ({
           totalValidations: prev.totalValidations + 1,
-          successRate: Math.min(99.9, prev.successRate + 0.01),
-          avgResponseTime: Math.round((prev.avgResponseTime + data.validationTime) / 2),
-          totalSaved: prev.totalSaved + data.costSaved,
+          successRate: Math.min(99.9, prev.successRate + (masResult.confidence.score > 70 ? 0.1 : -0.1)),
+          avgResponseTime: Math.round((prev.avgResponseTime + masResult.totalExecutionTime) / 2),
+          totalSaved: prev.totalSaved + costSaved,
         }));
 
-        // Mark all agents as complete
-        setAgentStatuses(prev => prev.map(a => ({ ...a, status: 'complete' as const })));
+        // Mark all active agents as complete
+        setAgentStatuses(prev => prev.map(a => 
+          a.status === 'active' ? { ...a, status: 'complete' as const } : a
+        ));
         setIsProcessing(false);
-      }, logProcessingTime);
+      }, totalDelay);
 
     } catch (error) {
       console.error('Validation error:', error);
-      addLog('orchestrator', `Critical error in validation pipeline: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-      updateAgentStatus('orchestrator', 'complete');
+      addLog('decision', `Critical error in Multi-Agent System: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+      updateAgentStatus('decision', 'complete');
+      setAgentStatuses(prev => prev.map(a => ({ ...a, status: 'complete' as const })));
       setIsProcessing(false);
     }
-  }, [addLog, updateAgentStatus, resetAgents, processServerLogs]);
+  }, [addLog, updateAgentStatus, resetAgents]);
 
   return {
     logs,
