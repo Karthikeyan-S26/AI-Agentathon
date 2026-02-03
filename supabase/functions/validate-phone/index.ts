@@ -5,7 +5,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const AI_GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+// OpenAI API endpoint
+const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 
 interface ValidationRequest {
   phoneNumber: string;
@@ -26,9 +27,9 @@ serve(async (req) => {
   }
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    if (!OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY is not configured');
     }
 
     const { phoneNumber, countryCode }: ValidationRequest = await req.json();
@@ -97,14 +98,14 @@ First, explain your step-by-step analysis, then provide the JSON.
 
 Be precise and use real telecommunications knowledge to identify actual carriers.`;
 
-    const validationResponse = await fetch(AI_GATEWAY_URL, {
+    const validationResponse = await fetch(OPENAI_API_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: 'gpt-4-turbo-preview',
         messages: [
           { role: 'system', content: 'You are an expert telecommunications validation agent with deep knowledge of global phone number standards, carrier prefixes, and number range allocations. Always analyze thoroughly and respond with valid JSON.' },
           { role: 'user', content: validationPrompt }
@@ -229,14 +230,14 @@ Be precise and use real telecommunications knowledge to identify actual carriers
 
 Be specific and use real carrier names based on number prefix patterns.`;
 
-    const carrierResponse = await fetch(AI_GATEWAY_URL, {
+    const carrierResponse = await fetch(OPENAI_API_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: 'gpt-4-turbo-preview',
         messages: [
           { 
             role: 'system', 
@@ -379,14 +380,14 @@ Provide detailed step-by-step analysis considering all factors above.
   }
 }`;
 
-      const whatsappResponse = await fetch(AI_GATEWAY_URL, {
+      const whatsappResponse = await fetch(OPENAI_API_URL, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'google/gemini-2.5-flash',
+          model: 'gpt-4-turbo-preview',
           messages: [
             { 
               role: 'system', 
