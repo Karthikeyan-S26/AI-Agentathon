@@ -76,29 +76,6 @@ const Index = () => {
           </section>
         </div>
 
-        {/* Formula Explanation */}
-        <GlowCard className="max-w-4xl mx-auto" glowColor="accent">
-          <div className="text-center space-y-4">
-            <h3 className="text-lg font-semibold text-accent">Confidence Scoring Algorithm</h3>
-            <div className="font-mono text-xl text-foreground bg-muted/50 py-4 px-6 rounded-lg inline-block">
-              S = (V × 0.4) + (W × 0.4) + (Q × 0.2) - (R × 5)
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-muted-foreground">
-              <div>
-                <span className="font-mono text-primary">V</span> = Validation Success
-              </div>
-              <div>
-                <span className="font-mono text-success">W</span> = WhatsApp Match
-              </div>
-              <div>
-                <span className="font-mono text-accent">Q</span> = Response Quality
-              </div>
-              <div>
-                <span className="font-mono text-warning">R</span> = Retry Count
-              </div>
-            </div>
-          </div>
-        </GlowCard>
 
         {/* Footer */}
         <footer className="text-center py-8 text-muted-foreground text-sm border-t border-border mt-12">
