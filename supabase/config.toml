@@ -1,1 +1,4 @@
 project_id = "rwcawhkqfiagxqhufygl"
+
+[functions.validate-phone]
+verify_jwt = false

@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { AgentLog, AgentStatus, AgentType, ValidationResult } from "@/types/validation";
+import { supabase } from "@/integrations/supabase/client";
 import { v4 as uuidv4 } from "uuid";
 
 const initialAgentStatuses: AgentStatus[] = [
@@ -10,32 +11,6 @@ const initialAgentStatuses: AgentStatus[] = [
   { name: 'whatsapp', displayName: 'WhatsApp', status: 'idle', icon: 'message' },
   { name: 'confidence', displayName: 'Confidence', status: 'idle', icon: 'chart' },
 ];
-
-const carriersByCountry: Record<string, string[]> = {
-  '+1': ['Verizon', 'AT&T', 'T-Mobile', 'Sprint'],
-  '+44': ['Vodafone UK', 'EE', 'O2', 'Three'],
-  '+91': ['Jio', 'Airtel', 'Vodafone India', 'BSNL'],
-  '+52': ['Telcel', 'Movistar', 'AT&T México'],
-  '+55': ['Vivo', 'Claro', 'TIM', 'Oi'],
-  '+49': ['Deutsche Telekom', 'Vodafone DE', 'O2 Germany'],
-  '+33': ['Orange', 'SFR', 'Bouygues', 'Free Mobile'],
-  '+81': ['NTT Docomo', 'SoftBank', 'KDDI'],
-  '+86': ['China Mobile', 'China Unicom', 'China Telecom'],
-  '+61': ['Telstra', 'Optus', 'Vodafone AU'],
-};
-
-const countryNames: Record<string, string> = {
-  '+1': 'United States',
-  '+44': 'United Kingdom',
-  '+91': 'India',
-  '+52': 'Mexico',
-  '+55': 'Brazil',
-  '+49': 'Germany',
-  '+33': 'France',
-  '+81': 'Japan',
-  '+86': 'China',
-  '+61': 'Australia',
-};
 
 export function useValidation() {
   const [logs, setLogs] = useState<AgentLog[]>([]);
@@ -65,12 +40,34 @@ export function useValidation() {
     ));
   }, []);
 
-  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
   const resetAgents = useCallback(() => {
     setAgentStatuses(initialAgentStatuses);
     setLogs([]);
   }, []);
+
+  const processServerLogs = useCallback((serverLogs: Array<{ agent: string; message: string; status: string; timestamp: string }>) => {
+    // Group logs by agent and process them with delays for visual effect
+    const agentOrder: AgentType[] = ['orchestrator', 'validation', 'retry', 'decision', 'whatsapp', 'confidence'];
+    
+    serverLogs.forEach((log, index) => {
+      setTimeout(() => {
+        const agentName = log.agent as AgentType;
+        
+        // Update agent status based on log
+        if (log.status === 'thinking') {
+          updateAgentStatus(agentName, 'active');
+        } else if (log.status === 'success' || log.status === 'error') {
+          // Check if this is the last log for this agent
+          const isLastLogForAgent = !serverLogs.slice(index + 1).some(l => l.agent === agentName);
+          if (isLastLogForAgent) {
+            updateAgentStatus(agentName, 'complete');
+          }
+        }
+        
+        addLog(agentName, log.message, log.status as AgentLog['status']);
+      }, index * 150); // Stagger logs for visual effect
+    });
+  }, [addLog, updateAgentStatus]);
 
   const validate = useCallback(async (phoneNumber: string, countryCode: string) => {
     resetAgents();
@@ -78,148 +75,70 @@ export function useValidation() {
     setResult(null);
 
     const startTime = Date.now();
-    let retryCount = 0;
-    const carriers = carriersByCountry[countryCode] || ['Unknown Carrier'];
-    const carrier = carriers[Math.floor(Math.random() * carriers.length)];
-    const lineType = Math.random() > 0.2 ? 'mobile' : (Math.random() > 0.5 ? 'landline' : 'voip');
 
     try {
-      // Orchestrator Agent
+      // Show initial processing state
       updateAgentStatus('orchestrator', 'active');
-      addLog('orchestrator', `Received validation request for ${countryCode} ${phoneNumber}`, 'info');
-      await delay(300);
-      addLog('orchestrator', 'Initializing multi-agent pipeline...', 'thinking');
-      await delay(400);
-      addLog('orchestrator', 'Dispatching to Validation Agent', 'success');
-      updateAgentStatus('orchestrator', 'complete');
+      addLog('orchestrator', `Initiating validation for ${countryCode} ${phoneNumber}`, 'thinking');
 
-      // Validation Agent
-      updateAgentStatus('validation', 'active');
-      addLog('validation', 'Performing syntax validation...', 'thinking');
-      await delay(500);
-      addLog('validation', `Format check passed. Country: ${countryNames[countryCode] || 'Unknown'}`, 'success');
-      await delay(300);
-      
-      // Simulate potential API issue
-      const hasApiIssue = Math.random() > 0.7;
-      if (hasApiIssue) {
-        addLog('validation', 'Primary provider returned 429 (Rate Limit). Notifying Decision Agent.', 'warning');
-        await delay(200);
-        updateAgentStatus('validation', 'complete');
-        
-        // Retry Agent kicks in
-        updateAgentStatus('retry', 'active');
-        addLog('retry', 'Rate limit detected. Analyzing fallback options...', 'thinking');
-        await delay(400);
-        addLog('retry', 'Switching to NumVerify API (Provider B)', 'info');
-        await delay(500);
-        retryCount = 1;
-        addLog('retry', 'Provider swap successful. Continuing validation.', 'success');
-        updateAgentStatus('retry', 'complete');
-        
-        updateAgentStatus('validation', 'active');
-      }
-      
-      addLog('validation', `Carrier lookup: ${carrier}`, 'success');
-      await delay(300);
-      addLog('validation', `Line type detected: ${lineType.toUpperCase()}`, 'success');
-      updateAgentStatus('validation', 'complete');
-
-      // Decision Agent
-      updateAgentStatus('decision', 'active');
-      addLog('decision', 'Analyzing validation results...', 'thinking');
-      await delay(400);
-      
-      let skipWhatsApp = false;
-      let costSaved = 0;
-      
-      if (lineType === 'landline') {
-        addLog('decision', 'DECISION: Landline detected. Skipping WhatsApp check to optimize costs.', 'warning');
-        skipWhatsApp = true;
-        costSaved = 0.012;
-        await delay(300);
-        addLog('decision', `Cost saved: $${costSaved.toFixed(3)} (WhatsApp API call avoided)`, 'success');
-      } else {
-        addLog('decision', 'Mobile/VoIP detected. Proceeding with WhatsApp verification.', 'success');
-      }
-      updateAgentStatus('decision', 'complete');
-
-      // WhatsApp Agent
-      let whatsappStatus: ValidationResult['whatsappStatus'] = 'unchecked';
-      
-      if (!skipWhatsApp) {
-        updateAgentStatus('whatsapp', 'active');
-        addLog('whatsapp', 'Initiating WhatsApp Business API lookup...', 'thinking');
-        await delay(600);
-        addLog('whatsapp', 'Querying Twilio WhatsApp Sandbox...', 'info');
-        await delay(500);
-        
-        const hasWhatsApp = Math.random() > 0.3;
-        if (hasWhatsApp) {
-          addLog('whatsapp', 'WhatsApp account VERIFIED ✓', 'success');
-          whatsappStatus = 'verified';
-        } else {
-          addLog('whatsapp', 'No WhatsApp account associated with this number', 'warning');
-          whatsappStatus = 'not_found';
-        }
-        updateAgentStatus('whatsapp', 'complete');
-      } else {
-        updateAgentStatus('whatsapp', 'complete');
-        addLog('whatsapp', 'Check skipped per Decision Agent directive', 'info');
-      }
-
-      // Confidence Scoring Agent
-      updateAgentStatus('confidence', 'active');
-      addLog('confidence', 'Computing confidence score using formula: S = (V×0.4) + (W×0.4) + (Q×0.2) - (R×5)', 'thinking');
-      await delay(400);
-      
-      // Calculate confidence score
-      const V = 1; // Validation success
-      const W = whatsappStatus === 'verified' ? 1 : (whatsappStatus === 'unchecked' ? 0.5 : 0);
-      const Q = hasApiIssue ? 0.7 : 1; // Quality of response
-      const R = retryCount;
-      
-      const rawScore = (V * 0.4) + (W * 0.4) + (Q * 0.2) - (R * 0.05);
-      const confidenceScore = Math.min(100, Math.max(0, Math.round(rawScore * 100)));
-      
-      addLog('confidence', `V=${V}, W=${W.toFixed(1)}, Q=${Q.toFixed(1)}, R=${R}`, 'info');
-      await delay(300);
-      addLog('confidence', `Final confidence score: ${confidenceScore}/100`, 'success');
-      updateAgentStatus('confidence', 'complete');
-
-      // Finalize
-      const validationTime = Date.now() - startTime;
-      
-      setResult({
-        phoneNumber: phoneNumber.replace(/-/g, ''),
-        countryCode,
-        countryName: countryNames[countryCode] || 'Unknown',
-        carrier,
-        lineType: lineType as ValidationResult['lineType'],
-        isValid: true,
-        whatsappStatus,
-        confidenceScore,
-        costSaved,
-        validationTime,
-        retryCount,
+      // Call the edge function
+      const { data, error } = await supabase.functions.invoke('validate-phone', {
+        body: { phoneNumber, countryCode }
       });
 
-      // Update stats
-      setStats(prev => ({
-        totalValidations: prev.totalValidations + 1,
-        successRate: Math.min(99.9, prev.successRate + 0.01),
-        avgResponseTime: Math.round((prev.avgResponseTime + validationTime) / 2),
-        totalSaved: prev.totalSaved + costSaved,
-      }));
+      if (error) {
+        console.error('Edge function error:', error);
+        addLog('orchestrator', `Error: ${error.message}`, 'error');
+        updateAgentStatus('orchestrator', 'complete');
+        setIsProcessing(false);
+        return;
+      }
 
-      addLog('orchestrator', `Validation complete. Total time: ${validationTime}ms`, 'success');
+      // Process the server logs with visual delays
+      if (data.logs && Array.isArray(data.logs)) {
+        // Clear initial log and process server logs
+        setLogs([]);
+        processServerLogs(data.logs);
+      }
+
+      // Set result after a delay to match log processing
+      const logProcessingTime = (data.logs?.length || 0) * 150 + 500;
+      
+      setTimeout(() => {
+        setResult({
+          phoneNumber: data.phoneNumber,
+          countryCode: data.countryCode,
+          countryName: data.countryName,
+          carrier: data.carrier,
+          lineType: data.lineType as ValidationResult['lineType'],
+          isValid: data.isValid,
+          whatsappStatus: data.whatsappStatus as ValidationResult['whatsappStatus'],
+          confidenceScore: data.confidenceScore,
+          costSaved: data.costSaved,
+          validationTime: data.validationTime,
+          retryCount: data.retryCount,
+        });
+
+        // Update stats
+        setStats(prev => ({
+          totalValidations: prev.totalValidations + 1,
+          successRate: Math.min(99.9, prev.successRate + 0.01),
+          avgResponseTime: Math.round((prev.avgResponseTime + data.validationTime) / 2),
+          totalSaved: prev.totalSaved + data.costSaved,
+        }));
+
+        // Mark all agents as complete
+        setAgentStatuses(prev => prev.map(a => ({ ...a, status: 'complete' as const })));
+        setIsProcessing(false);
+      }, logProcessingTime);
 
     } catch (error) {
-      addLog('orchestrator', 'Critical error in validation pipeline', 'error');
-    } finally {
+      console.error('Validation error:', error);
+      addLog('orchestrator', `Critical error in validation pipeline: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+      updateAgentStatus('orchestrator', 'complete');
       setIsProcessing(false);
     }
-  }, [addLog, updateAgentStatus, resetAgents]);
+  }, [addLog, updateAgentStatus, resetAgents, processServerLogs]);
 
   return {
     logs,
