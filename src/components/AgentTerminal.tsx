@@ -25,6 +25,7 @@ const agentConfig: Record<AgentType, { color: string; icon: typeof Bot }> = {
   decision: { color: 'text-accent', icon: Brain },
   retry: { color: 'text-warning', icon: RefreshCw },
   whatsapp: { color: 'text-green-400', icon: MessageSquare },
+  carrier: { color: 'text-blue-400', icon: Network },
   confidence: { color: 'text-primary', icon: BarChart3 },
 };
 
@@ -89,7 +90,7 @@ export function AgentTerminal({ logs, isProcessing }: AgentTerminalProps) {
           </div>
         ) : (
           logs.map((log, index) => {
-            const config = agentConfig[log.agent];
+            const config = agentConfig[log.agent] || { color: 'text-muted-foreground', icon: Bot };
             const AgentIcon = config.icon;
             
             return (

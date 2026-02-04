@@ -17,6 +17,8 @@ export type {
   PlanStep,
   ValidationData,
   WhatsAppData,
+  BusinessAccountData,
+  InactivityStatus,
   ConfidenceScore,
   RetryContext,
   ValidationResult,
@@ -34,6 +36,7 @@ export { ValidationAgent } from './validation/ValidationAgent';
 export { WhatsAppAgent } from './whatsapp/WhatsAppAgent';
 export { RetryAgent } from './retry/RetryAgent';
 export { ConfidenceAgent } from './confidence/ConfidenceAgent';
+export { InactiveAccountAgent } from './inactive/InactiveAccountAgent';
 
 // Supervisor
 export { Supervisor } from './supervisor/Supervisor';
@@ -63,6 +66,9 @@ export function createMultiAgentSystem(config: {
   numverifyBackupKey?: string;
   abstractBackupKey?: string;
   whatsappBackupKey?: string;
+  twilioAccountSid?: string;
+  twilioAuthToken?: string;
+  twilioPhoneNumber?: string;
   enableLogging?: boolean;
   maxExecutionTime?: number;
 }) {
@@ -71,7 +77,12 @@ export function createMultiAgentSystem(config: {
       primary: {
         numverify: config.numverifyKey,
         abstract: config.abstractKey,
-        whatsapp: config.whatsappKey
+        whatsapp: config.whatsappKey,
+        twilio: {
+          accountSid: config.twilioAccountSid,
+          authToken: config.twilioAuthToken,
+          phoneNumber: config.twilioPhoneNumber
+        }
       },
       backup: {
         numverify: config.numverifyBackupKey,

@@ -7,12 +7,11 @@ export function Header() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="relative p-2 rounded-lg bg-primary/10 border border-primary/30">
-              <Phone className="w-6 h-6 text-primary" />
-              <Zap className="w-3 h-3 text-warning absolute -top-1 -right-1" />
+              <img src="/logo.png" alt="Validex AI" className="w-6 h-6" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-foreground tracking-tight">
-                PhoneVerify<span className="text-primary">AI</span>
+                Validex <span className="text-primary">AI</span>
               </h1>
               <p className="text-xs text-muted-foreground">
                 Multi-Agent Validation Engine

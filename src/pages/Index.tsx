@@ -79,7 +79,7 @@ const Index = () => {
 
         {/* Footer */}
         <footer className="text-center py-8 text-muted-foreground text-sm border-t border-border mt-12">
-          <p>PhoneVerifyAI — Multi-Agent Orchestration Engine</p>
+          <p>Validex AI — Multi-Agent Orchestration Engine</p>
           <p className="text-xs mt-2">
             Built with autonomous reasoning and self-healing capabilities
           </p>

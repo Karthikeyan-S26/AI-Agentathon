@@ -12,8 +12,15 @@ import {
   RefreshCw,
   CheckCircle2,
   XCircle,
-  AlertTriangle
+  AlertTriangle,
+  Mail,
+  PhoneCall,
+  Mailbox,
+  Calendar
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 interface ValidationResultsProps {
   result: ValidationResult | null;
@@ -47,6 +54,31 @@ export function ValidationResults({ result }: ValidationResultsProps) {
 
   const whatsAppConfig = getWhatsAppStatusConfig();
   const WhatsAppIcon = whatsAppConfig.icon;
+
+  const getInactivitySeverityConfig = (severity: string) => {
+    switch (severity) {
+      case 'critical':
+        return { color: 'destructive', label: 'Critical', bgClass: 'bg-destructive/10 border-destructive/30' };
+      case 'high':
+        return { color: 'destructive', label: 'High Risk', bgClass: 'bg-destructive/10 border-destructive/30' };
+      case 'moderate':
+        return { color: 'warning', label: 'Moderate Risk', bgClass: 'bg-warning/10 border-warning/30' };
+      case 'low':
+        return { color: 'default', label: 'Low Risk', bgClass: 'bg-muted border-muted' };
+      default:
+        return { color: 'default', label: 'Active', bgClass: 'bg-success/10 border-success/30' };
+    }
+  };
+
+  const getAlternativeChannelIcon = (channel: string) => {
+    switch (channel) {
+      case 'SMS': return PhoneCall;
+      case 'Email': return Mail;
+      case 'Voice Call': return Phone;
+      case 'Postal Mail': return Mailbox;
+      default: return MessageSquare;
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -117,6 +149,109 @@ export function ValidationResults({ result }: ValidationResultsProps) {
       <GlowCard className="flex flex-col items-center justify-center" glowColor="primary">
         <ConfidenceGauge score={result.confidenceScore} />
       </GlowCard>
+
+      {/* Inactivity Warning */}
+      {result.inactivityStatus && result.inactivityStatus.isInactive && (
+        <div className="lg:col-span-3">
+          <Alert className={cn("border-2", getInactivitySeverityConfig(result.inactivityStatus.severity).bgClass)}>
+            <AlertTriangle className="h-5 w-5" />
+            <AlertTitle className="flex items-center gap-2 mb-3">
+              <span>Inactive WhatsApp Account Detected</span>
+              <Badge variant={getInactivitySeverityConfig(result.inactivityStatus.severity).color as any}>
+                {getInactivitySeverityConfig(result.inactivityStatus.severity).label}
+              </Badge>
+            </AlertTitle>
+            <AlertDescription>
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="flex flex-col">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider">Last Active</span>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Calendar className="w-4 h-4 text-warning" />
+                      <span className="font-medium">{result.inactivityStatus.daysSinceActive} days ago</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider">Delivery Probability</span>
+                    <span className="font-medium mt-1 text-destructive">
+                      {result.inactivityStatus.deliveryProbability}%
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider">Inactivity Score</span>
+                    <span className="font-medium mt-1">
+                      {result.inactivityStatus.inactivityScore}/100
+                    </span>
+                  </div>
+                </div>
+
+                {result.inactivityStatus.recommendations.length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-sm font-medium mb-2">Recommendations:</p>
+                    <ul className="text-sm space-y-1 list-disc list-inside text-muted-foreground">
+                      {result.inactivityStatus.recommendations.map((rec, idx) => (
+                        <li key={idx}>{rec}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {result.inactivityStatus.alternativeChannels.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium mb-2">Try Alternative Channels:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {result.inactivityStatus.alternativeChannels.map((channel, idx) => {
+                        const Icon = getAlternativeChannelIcon(channel);
+                        return (
+                          <Button
+                            key={idx}
+                            variant="outline"
+                            size="sm"
+                            className="flex items-center gap-2"
+                          >
+                            <Icon className="w-4 h-4" />
+                            {channel}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
+
+      {/* Business Account Badge */}
+      {result.whatsappData?.metadata?.businessConfidence && 
+       result.whatsappData.metadata.businessConfidence > 0.6 && (
+        <div className="lg:col-span-3">
+          <Alert className="border-2 bg-blue-50/50 border-blue-200/50 dark:bg-blue-950/20 dark:border-blue-800/30">
+            <MessageSquare className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            <AlertTitle className="flex items-center gap-2">
+              <span>Business WhatsApp Account</span>
+              <Badge variant="outline" className="border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-300">
+                {Math.round(result.whatsappData.metadata.businessConfidence * 100)}% Confidence
+              </Badge>
+            </AlertTitle>
+            <AlertDescription>
+              <div className="mt-2 space-y-2">
+                <p className="text-sm">
+                  This appears to be a business or professional WhatsApp account based on:
+                </p>
+                {result.whatsappData.metadata.businessIndicators && (
+                  <ul className="text-sm space-y-1 list-disc list-inside text-muted-foreground">
+                    {result.whatsappData.metadata.businessIndicators.map((indicator, idx) => (
+                      <li key={idx}>{indicator}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
 
       {/* Metrics Row */}
       <div className="lg:col-span-3 grid grid-cols-3 gap-4">

@@ -169,9 +169,14 @@ Output Format: Return all results in clean, valid JSON only. Do not add conversa
       }
 
       const cleanNumber = phoneNumber.replace(/\D/g, '');
-      const url = `http://apilayer.net/api/validate?access_key=${apiKey}&number=${cleanNumber}`;
+      // Use HTTPS endpoint for better compatibility
+      const url = `https://apilayer.net/api/validate?access_key=${apiKey}&number=${cleanNumber}&format=1`;
+      
+      console.log('🔑 NumVerify Request:', { url: url.replace(apiKey, 'KEY***'), cleanNumber });
       
       const response = await fetch(url);
+      
+      console.log('📡 NumVerify Response Status:', response.status, response.statusText);
       
       if (!response.ok) {
         return {
@@ -183,6 +188,16 @@ Output Format: Return all results in clean, valid JSON only. Do not add conversa
       }
       
       const data = await response.json();
+      
+      console.log('📡 NumVerify API Response:', {
+        valid: data.valid,
+        carrier: data.carrier,
+        line_type: data.line_type,
+        country_code: data.country_code,
+        country_name: data.country_name,
+        location: data.location,
+        hasError: !!data.error
+      });
       
       if (data.error) {
         return {
@@ -234,6 +249,13 @@ Output Format: Return all results in clean, valid JSON only. Do not add conversa
       }
       
       const data = await response.json();
+      
+      console.log('📡 Abstract API Response:', {
+        valid: data.valid,
+        carrier: data.carrier,
+        type: data.type,
+        country: data.country?.name
+      });
       
       if (data.error) {
         return {
@@ -287,6 +309,12 @@ Output Format: Return all results in clean, valid JSON only. Do not add conversa
         validationData.carrier = data.carrier || validationData.carrier;
         validationData.formatted = data.international_format || validationData.formatted;
         
+        console.log('✅ NumVerify Data Extracted:', {
+          carrier: data.carrier,
+          extracted: validationData.carrier,
+          lineType: data.line_type
+        });
+        
         // NumVerify line type mapping
         if (data.line_type) {
           validationData.lineType = data.line_type.toLowerCase() as any;
@@ -316,6 +344,25 @@ Output Format: Return all results in clean, valid JSON only. Do not add conversa
     this.think(`Final line type: ${validationData.lineType}`);
     this.think(`Valid: ${validationData.valid}`);
     
+    // Fallback: If no carrier detected from API, use pattern analysis
+    if (!validationData.carrier || validationData.carrier === 'Unknown') {
+      console.log('⚠️ No carrier from API, using pattern analysis...');
+      const cleanNumber = phoneNumber.replace(/\D/g, '');
+      const detectedCarrier = this.analyzeCarrierFromPattern(cleanNumber, validationData.countryCode);
+      if (detectedCarrier) {
+        validationData.carrier = detectedCarrier;
+        console.log('✅ Carrier detected from pattern:', detectedCarrier);
+      }
+    }
+    
+    console.log('🎯 Final Validation Data:', {
+      carrier: validationData.carrier,
+      lineType: validationData.lineType,
+      countryCode: validationData.countryCode,
+      countryName: validationData.countryName,
+      valid: validationData.valid
+    });
+    
     return validationData;
   }
 
@@ -327,25 +374,55 @@ Output Format: Return all results in clean, valid JSON only. Do not add conversa
     
     // Use pattern recognition to identify carrier
     if (countryCode === 'IN') {
-      const prefix = cleanNumber.substring(2, 4);
-      this.think(`India mobile prefix detected: ${prefix}`);
-      
-      // Vodafone Idea: 80, 87, 89, 96-99
-      if (['80', '87', '89', '96', '97', '98', '99'].includes(prefix)) {
-        this.think('Pattern matches Vodafone Idea allocation');
-        return 'Vodafone Idea';
+      // Indian mobile numbers: +91 XXXXX XXXXX (10 digits after country code)
+      // Extract the mobile series (first 2 digits after country code)
+      let operatorCode = '';
+      const indexOfCountry = cleanNumber.indexOf('91');
+      if (indexOfCountry !== -1) {
+        operatorCode = cleanNumber.substring(indexOfCountry + 2, indexOfCountry + 4);
+      } else {
+        // If no country code, assume first 2 digits are operator code
+        operatorCode = cleanNumber.substring(0, 2);
       }
-      // Jio: 60-69, 88
-      if (parseInt(prefix) >= 60 && parseInt(prefix) <= 69 || prefix === '88') {
+      
+      this.think(`India mobile operator code detected: ${operatorCode}`);
+      
+      console.log('🔍 Indian Carrier Pattern Analysis:', {
+        cleanNumber,
+        operatorCode,
+        indexOfCountry
+      });
+      
+      // Comprehensive Indian Carrier Detection based on actual MSC allocation
+      const codeNum = parseInt(operatorCode);
+      
+      // Reliance Jio (launched 2016, massive series allocation)
+      // Series: 60-69, 75, 76, 77, 78, 79, 88
+      if ((codeNum >= 60 && codeNum <= 69) || 
+          (codeNum >= 75 && codeNum <= 79) || 
+          operatorCode === '88') {
         this.think('Pattern matches Reliance Jio allocation');
         return 'Reliance Jio';
       }
-      // Airtel: 70-86, 90-95 (excluding Vodafone/Jio)
-      if ((parseInt(prefix) >= 70 && parseInt(prefix) <= 86 && !['80', '87', '88', '89'].includes(prefix)) ||
-          (parseInt(prefix) >= 90 && parseInt(prefix) <= 95)) {
+      
+      // Bharti Airtel (largest pre-Jio operator)
+      // Series: 70, 73, 74, 83, 84, 90, 91, 92, 93, 94, 95
+      if (['70', '73', '74', '83', '84', '90', '91', '92', '93', '94', '95'].includes(operatorCode)) {
         this.think('Pattern matches Bharti Airtel allocation');
         return 'Bharti Airtel';
       }
+      
+      // Vodafone Idea (merger of Vodafone India + Idea)
+      // Series: 71, 72, 80, 81, 82, 85, 86, 87, 89, 96, 97, 98, 99
+      if (['71', '72', '80', '81', '82', '85', '86', '87', '89', '96', '97', '98', '99'].includes(operatorCode)) {
+        this.think('Pattern matches Vodafone Idea allocation');
+        return 'Vodafone Idea';
+      }
+      
+      // BSNL/MTNL (Government operators)
+      // Series: Remaining series not allocated to private operators
+      this.think('Pattern matches BSNL/MTNL allocation');
+      return 'BSNL/MTNL';
     }
     
     if (countryCode === 'DO') {

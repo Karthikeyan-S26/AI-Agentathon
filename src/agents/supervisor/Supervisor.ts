@@ -10,6 +10,7 @@ import { ValidationAgent } from '../validation/ValidationAgent';
 import { WhatsAppAgent } from '../whatsapp/WhatsAppAgent';
 import { RetryAgent } from '../retry/RetryAgent';
 import { ConfidenceAgent } from '../confidence/ConfidenceAgent';
+import { InactiveAccountAgent } from '../inactive/InactiveAccountAgent';
 import type {
   ValidationResult,
   ExecutionPlan,
@@ -46,6 +47,7 @@ export class Supervisor {
   private whatsappAgent: WhatsAppAgent;
   private retryAgent: RetryAgent;
   private confidenceAgent: ConfidenceAgent;
+  private inactiveAgent: InactiveAccountAgent;
   
   private state: SupervisorState;
   private config: SupervisorConfig;
@@ -63,6 +65,7 @@ export class Supervisor {
     this.whatsappAgent = new WhatsAppAgent();
     this.retryAgent = new RetryAgent();
     this.confidenceAgent = new ConfidenceAgent();
+    this.inactiveAgent = new InactiveAccountAgent();
 
     // Initialize state
     this.state = {
@@ -164,8 +167,15 @@ export class Supervisor {
         const whatsappResponse = await this.executeWithRetry(
           () => this.whatsappAgent.execute({
             phoneNumber: request.phoneNumber,
-            apiKey: this.config.apiConfig.primary.whatsapp,
-            retryContext
+            accountSid: this.config.apiConfig.primary.twilio?.accountSid,
+            authToken: this.config.apiConfig.primary.twilio?.authToken,
+            twilioNumber: this.config.apiConfig.primary.twilio?.phoneNumber,
+            retryContext,
+            validationData: {
+              countryCode: validationData.countryCode,
+              lineType: validationData.lineType,
+              carrier: validationData.carrier
+            }
           }),
           'whatsapp',
           'whatsapp'
@@ -180,12 +190,49 @@ export class Supervisor {
           if (whatsappData.exists) {
             this.log(`   Verified: ${whatsappData.verified ? 'Yes' : 'No'}`);
             this.log(`   Business: ${whatsappData.businessAccount ? 'Yes' : 'No'}`);
+            if (whatsappData.metadata?.businessConfidence) {
+              this.log(`   Business Confidence: ${Math.round(whatsappData.metadata.businessConfidence * 100)}%`);
+            }
           }
         }
       } else {
         this.logPhase('PHASE 3: WHATSAPP CHECK SKIPPED');
         this.log(`   Reason: ${plan.skipWhatsApp ? 'Planned skip' : 'Non-mobile number'}`);
         chainOfExecution.push('WhatsApp Agent: Skipped');
+      }
+
+      // === PHASE 3.5: INACTIVE ACCOUNT DETECTION ===
+      let inactivityStatus;
+      
+      if (whatsappData && whatsappData.exists) {
+        this.logPhase('PHASE 3.5: INACTIVE ACCOUNT ANALYSIS');
+        
+        const inactiveResponse = await this.inactiveAgent.execute({
+          phoneNumber: request.phoneNumber,
+          twilioAccountSid: this.config.apiConfig.primary.twilio?.accountSid,
+          twilioAuthToken: this.config.apiConfig.primary.twilio?.authToken,
+          retryContext
+        });
+
+        if (inactiveResponse.success && inactiveResponse.data) {
+          inactivityStatus = inactiveResponse.data;
+          chainOfThought.push(...inactiveResponse.metadata.reasoning);
+          chainOfExecution.push(`Inactive Agent: Score ${inactivityStatus.inactivityScore}/100`);
+          
+          this.log(`📊 Inactivity Analysis:`);
+          this.log(`   Inactive: ${inactivityStatus.isInactive ? 'YES' : 'NO'}`);
+          this.log(`   Severity: ${inactivityStatus.severity.toUpperCase()}`);
+          this.log(`   Delivery Probability: ${inactivityStatus.deliveryProbability}%`);
+          
+          if (inactivityStatus.daysSinceActive > 0) {
+            this.log(`   Days Since Active: ${inactivityStatus.daysSinceActive}`);
+          }
+          
+          if (inactivityStatus.reasons.length > 0) {
+            this.log(`   Indicators:`);
+            inactivityStatus.reasons.forEach(r => this.log(`      - ${r}`));
+          }
+        }
       }
 
       // === PHASE 4: CONFIDENCE SCORING ===
@@ -209,7 +256,19 @@ export class Supervisor {
       chainOfThought.push(...confidenceResponse.metadata.reasoning);
       chainOfExecution.push(`Confidence Agent: Score ${confidence.score}/100`);
 
-      this.log(`✅ Confidence Score: ${confidence.score}/100`);
+      // Adjust confidence based on inactivity
+      let adjustedConfidence = confidence.score;
+      if (inactivityStatus && inactivityStatus.isInactive) {
+        const inactivityPenalty = (100 - inactivityStatus.deliveryProbability) * 0.5; // 50% weight
+        adjustedConfidence = Math.max(0, confidence.score - inactivityPenalty);
+        
+        this.log(`⚠️  Confidence adjusted for inactivity:`);
+        this.log(`   Original: ${confidence.score}/100`);
+        this.log(`   Adjusted: ${Math.round(adjustedConfidence)}/100`);
+        this.log(`   Penalty: -${Math.round(inactivityPenalty)} points`);
+      }
+
+      this.log(`✅ Final Confidence Score: ${Math.round(adjustedConfidence)}/100`);
       this.log(`   Reasoning: ${confidence.reasoning}`);
       
       if (confidence.discrepancies.length > 0) {
@@ -229,7 +288,11 @@ export class Supervisor {
         phoneNumber: request.phoneNumber,
         validation: validationData,
         whatsapp: whatsappData,
-        confidence,
+        confidence: {
+          ...confidence,
+          score: Math.round(adjustedConfidence) // Use adjusted score
+        },
+        inactivityStatus,
         executionPlan: plan,
         totalExecutionTime,
         chainOfThought,

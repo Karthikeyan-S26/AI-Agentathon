@@ -1,6 +1,7 @@
 /**
  * Multi-Agent System Types
  * Defines the structure for agent communication, execution plans, and observability
+ * Updated to support Inactive Account Detection and Twilio/Database tools
  */
 
 export type AgentRole = 
@@ -8,7 +9,8 @@ export type AgentRole =
   | 'validation'    // Technical Data Extractor
   | 'whatsapp'      // WhatsApp Intelligence
   | 'retry'         // Resilience Engineer
-  | 'confidence';   // Quality Controller
+  | 'confidence'    // Quality Controller
+  | 'inactive';     // Inactivity Detector
 
 export type AgentStatus = 
   | 'idle'
@@ -22,6 +24,8 @@ export type ToolName =
   | 'numverify'
   | 'abstract'
   | 'whatsapp'
+  | 'twilio'
+  | 'database'
   | 'none';
 
 /**
@@ -106,6 +110,43 @@ export interface WhatsAppData {
   lastSeen?: string;
   profilePicture?: boolean;
   about?: string;
+  metadata?: {
+    carrier?: string;
+    lineType?: string;
+    countryCode?: string;
+    businessConfidence?: number;
+    businessIndicators?: string[];
+  };
+}
+
+/**
+ * Business Account Detection Data
+ */
+export interface BusinessAccountData {
+  isLikelyBusiness: boolean;
+  confidence: number; // 0-1
+  score: number; // 0-100
+  reasons: string[];
+  accountType: 'business' | 'personal';
+}
+
+/**
+ * Inactivity Status - Output from Inactive Account Agent
+ */
+export interface InactivityStatus {
+  isInactive: boolean;
+  daysSinceActive: number;
+  inactivityScore: number; // 0-100
+  deliveryProbability: number; // 0-100
+  confidence: number; // 0-1
+  severity: 'critical' | 'high' | 'moderate' | 'low' | 'none';
+  reasons: string[];
+  recommendation: string;
+  alternativeChannels: string[];
+  countryPrevalence: {
+    country: string;
+    whatsappUsage: number;
+  };
 }
 
 /**
@@ -180,6 +221,7 @@ export interface ValidationResult {
   validation: ValidationData;
   whatsapp?: WhatsAppData;
   confidence: ConfidenceScore;
+  inactivityStatus?: InactivityStatus;
   executionPlan: ExecutionPlan;
   totalExecutionTime: number;
   chainOfThought: string[];
@@ -194,6 +236,11 @@ export interface APIConfig {
     numverify?: string;
     abstract?: string;
     whatsapp?: string;
+    twilio?: {
+      accountSid?: string;
+      authToken?: string;
+      phoneNumber?: string;
+    };
   };
   backup: {
     numverify?: string;

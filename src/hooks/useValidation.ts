@@ -85,6 +85,9 @@ export function useValidation() {
         numverifyKey: import.meta.env.VITE_NUMVERIFY_API_KEY,
         abstractKey: import.meta.env.VITE_ABSTRACT_API_KEY,
         whatsappKey: import.meta.env.VITE_WHATSAPP_API_KEY,
+        twilioAccountSid: import.meta.env.VITE_TWILIO_ACCOUNT_SID,
+        twilioAuthToken: import.meta.env.VITE_TWILIO_AUTH_TOKEN,
+        twilioPhoneNumber: import.meta.env.VITE_TWILIO_PHONE_NUMBER,
         enableLogging: false // We'll handle logging ourselves
       });
 
@@ -99,11 +102,13 @@ export function useValidation() {
       });
 
       // Debug logging
-      console.log('🔍 MAS Result:', {
-        hasWhatsApp: !!masResult.whatsapp,
-        whatsappData: masResult.whatsapp,
+      console.log('🔍 MAS Result:', masResult);
+      console.log('📱 WhatsApp Data:', {
+        exists: masResult.whatsapp?.exists,
         skipWhatsApp: masResult.executionPlan.skipWhatsApp,
-        lineType: masResult.validation.lineType
+        lineType: masResult.validation.lineType,
+        carrier: masResult.validation.carrier,
+        countryCode: masResult.validation.countryCode
       });
 
       // Process Chain of Thought
